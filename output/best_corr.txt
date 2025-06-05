@@ -1,0 +1,35 @@
+Correlation with target (“HeartDisease”)
+
+
+PEARSON
+Age                      0.258298
+Gender                  -0.011454
+BloodPressure           -0.116973
+Cholesterol             -0.423530
+HeartRate               -0.102720
+QuantumPatternFeature   -0.775160
+HeartDisease             1.000000
+
+
+SPEARMAN
+Age                      0.274927
+Gender                  -0.011454
+BloodPressure           -0.117136
+Cholesterol             -0.422502
+HeartRate               -0.104939
+QuantumPatternFeature   -0.819001
+HeartDisease             1.000000
+
+
+KENDALL
+Age                      0.226969
+Gender                  -0.011454
+BloodPressure           -0.096254
+Cholesterol             -0.346493
+HeartRate               -0.086458
+QuantumPatternFeature   -0.669380
+HeartDisease             1.000000
+
+
+>>> Suggested best correlation metric:
+Pearson (looks roughly linear & normal enough)
