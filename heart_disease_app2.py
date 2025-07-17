@@ -5,12 +5,13 @@ import joblib
 from pathlib import Path
 import shap
 import matplotlib.pyplot as plt
-from shap import Explanation
 import matplotlib
 import streamlit.components.v1 as components
+from sklearn.svm import SVC
 
 # Nicer looking charts in Streamlit
 plt.rcParams["figure.dpi"] = 120
+
 st.set_page_config(page_title="Heart‑Disease Risk Predictor", layout="centered")
 
 # ───────────────────────────────────────────────
@@ -35,8 +36,7 @@ def load_model(base_name: str, *, has_qpf: bool = True):
 # ───────────────────────────────────────────────
 st.title("Heart‑Disease Risk Predictor 💓")
 st.write(
-    "Upload patient data or manually enter details to predict heart‑disease risk "
-    "**and** understand which features drive each prediction through SHAP visualisations."
+    "Upload patient data or manually enter details to predict heart‑disease risk **and** understand which features drive each prediction through interactive SHAP visualisations."
 )
 
 selected_model = st.sidebar.selectbox("Select a Trained Model", MODEL_BASE_NAMES)
@@ -93,68 +93,79 @@ else:
     input_df = pd.DataFrame(input_dict)
 
 # ───────────────────────────────────────────────
-# SHAP Utilities
+# Helper – SHAP utilities
 # ───────────────────────────────────────────────
+
 def compute_shap_values(model, X: pd.DataFrame):
-    """Compute SHAP values using LinearExplainer with support for different pipeline styles."""
+    """Compute SHAP values using a best‑effort strategy that covers pipelines & raw models."""
+    # Sample a small background for performance
+    background = X.copy()
+    if len(background) > 100:
+        background = background.sample(n=100, random_state=42)
+
+    # 1️⃣ Generic explainer (works on many model types)
     try:
-        steps = model.named_steps
+        explainer = shap.Explainer(model, background)
+        return explainer, explainer(X)
+    except Exception:
+        pass
 
-        # Try standard scaler-based pipelines
-        if "scaler" in steps and "clf" in steps:
-            scaler = steps["scaler"]
-            clf = steps["clf"]
-            X_scaled = scaler.transform(X)
-            background = np.zeros_like(X_scaled)
-            explainer = shap.LinearExplainer(clf, background, feature_names=X.columns)
-            shap_values = explainer(X_scaled)
-            return explainer, shap_values
+    print("# 2️⃣ Pipeline fallback – explain final estimator on transformed data")
+    if hasattr(model, "named_steps"):
+        try:
+            bg_trans = model[:-1].transform(background)
+            X_trans = model[:-1].transform(X)
+            explainer = shap.Explainer(model[-1], bg_trans)
+            shap_vals = explainer(X_trans)
+            return explainer, shap_vals
+        except Exception:
+            pass
 
-        # Try pipelines with a full preprocessor (e.g., prep) before clf
-        elif "prep" in steps and "clf" in steps:
-            prep = steps["prep"]
-            clf = steps["clf"]
-            X_trans = prep.transform(X)
-            background = np.zeros_like(X_trans)
-            explainer = shap.LinearExplainer(clf, background, feature_names=getattr(prep, "get_feature_names_out", lambda: X.columns)())
-            shap_values = explainer(X_trans)
-            return explainer, shap_values
+    st.warning("Unable to compute SHAP values for this model.")
+    return None, None
 
-        else:
-            st.warning("Unsupported pipeline structure for SHAP.")
-            return None, None
 
-    except Exception as e:
-        st.warning(f"SHAP explanation failed: {e}")
-        return None, None
+def st_shap_plot(plot_obj, *, height: int = 400):
+    """Render either an interactive HTML SHAP plot or a Matplotlib figure."""
+    # Interactive plot (has .html method)
+    if hasattr(plot_obj, "html") and callable(plot_obj.html):
+        shap_html = f"<head>{shap.getjs()}</head><body>{plot_obj.html()}</body>"
+        components.html(shap_html, height=height, scrolling=True)
+        return
+
+    # Matplotlib figure / axes fallback
+    if isinstance(plot_obj, matplotlib.figure.Figure):
+        st.pyplot(plot_obj)
+    elif hasattr(plot_obj, "figure") and isinstance(plot_obj.figure, matplotlib.figure.Figure):
+        st.pyplot(plot_obj.figure)
+    else:
+        st.write("⚠️ Could not display SHAP plot – unsupported object type.")
+
 
 def render_shap_plots(shap_values, X: pd.DataFrame):
-    """Render SHAP force and bar plots using Explanation object."""
+    """Render an appropriate SHAP visual, handling multi‑output (e.g. binary) explanations."""
     st.subheader("Feature Contribution (SHAP)")
+    shap.initjs()
 
-    st.write("🔎 **SHAP Force Plot (All Features)**")
-    try:
-        fig_force = shap.plots.force(shap_values[0], matplotlib=True, show=False)
-        st.pyplot(fig_force)
-    except Exception as e:
-        st.warning(f"Could not render SHAP force plot: {e}")
+    # For binary classifiers shap_values shape = (n_samples, 2, n_features).
+    # Pick the *positive* class (index 1) by default.
+    is_multi_output = len(shap_values.shape) == 3
+    if is_multi_output:
+        shap_values = shap_values[:, 1, :]
 
-    st.write("📊 **SHAP Bar Chart**")
-    try:
-        expl = Explanation(
-            values=shap_values.values[0],
-            base_values=shap_values.base_values[0],
-            data=X.values[0],
-            feature_names=X.columns.tolist()
-        )
-        fig_bar, ax = plt.subplots()
-        shap.plots.bar(expl, show=False)
-        st.pyplot(fig_bar)
-    except Exception as e:
-        st.warning(f"Could not render SHAP bar plot: {e}")
+    if len(X) == 1:
+        st.write("Waterfall plot for this individual prediction:")
+        plot_obj = shap.plots.waterfall(shap_values[0], max_display=10, show=False)
+        st_shap_plot(plot_obj)
+    else:
+        st.write("Summary feature‑importance across all uploaded rows:")
+        plot_obj = shap.plots.bar(shap_values, max_display=10, show=False)
+        st_shap_plot(plot_obj, height=500)
 
 # ───────────────────────────────────────────────
 # Prediction & SHAP
+# ───────────────────────────────────────────────
+# Prediction
 # ───────────────────────────────────────────────
 predict_clicked = st.button("Predict")
 explain_clicked = st.button(
@@ -176,9 +187,11 @@ if predict_clicked or explain_clicked:
         st.warning(f"Could not align features automatically: {e}")
 
 if predict_clicked:
+    # Predict class probabilities & labels
     prob = model.predict_proba(input_df)[:, 1]
     preds = model.predict(input_df)
 
+    # Display predictions
     st.subheader("Prediction Results")
     if len(input_df) == 1:
         st.write(f"**Predicted Probability:** `{prob[0]:.2%}`")
