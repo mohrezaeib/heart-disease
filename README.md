@@ -42,16 +42,16 @@ pip install -r requirements.txt
 2. Train the model
 ------------------
 ```bash
-python train_logistic.py
+python train_model.py
 ```
 What it does  
 • Reads `Heart Prediction Quantum Dataset.csv`  
 • Fits a logistic-regression pipeline (with standard-scaling) on **all** available rows  
-• Creates `output/` (if it doesn’t exist) and writes `logreg_pipeline.pkl`
+• Creates `output/` (if it doesn’t exist) and writes `model_name.pkl`
 
 You should see something like:
 ```
-Model saved to: /full/path/to/output/logreg_pipeline.pkl
+✅ All models trained and saved to ./output/
 ```
 
 3. Launch the web application
@@ -68,7 +68,7 @@ Enter the six features (Age, Gender, Blood Pressure, etc.) and press **Predict**
 
 Troubleshooting
 ---------------
-• “Model file not found” – Make sure you ran `train_logistic.py` before starting the app, and that `output/logreg_pipeline.pkl` exists.  
+• “Model file not found” – Make sure you ran `train_model.py` before starting the app, and that `output/model_name.pkl` exists.  
 • Port already in use – Start Streamlit on another port:  
   ```bash
   streamlit run heart_disease_app.py --server.port 8502
